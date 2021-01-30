@@ -1,0 +1,153 @@
+---
+title: "Assignment_1_IRIS"
+output:
+  html_document:
+    df_print: paged
+  word_document:
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+---
+#3.1 Reading and Manually Checking
+
+#3.1a View the file in a text-editor to determine its format and read the file into R.
+
+iris <- read.csv("dirty_iris.csv", stringsAsFactors = FALSE)
+```{r}
+iris <- read.csv("dirty_iris.csv", stringsAsFactors = FALSE)
+```
+
+#3.1b Calculate the number and percentage of observations that are complete.
+# n is number of observations
+```{r}
+n <- complete.cases(iris)
+percent <- (sum(n)/nrow(iris)) * 100
+paste("The percentage of complete observation:",percent,"%")
+```
+#3.1c Does the data contain other special values? If it does, replace them with NA
+
+```{r}
+is.special <- function(x){
+  if(is.numeric(x)) !is.finite(x)
+  else is.na(x)
+}
+sapply(iris, is.special)
+
+for(i in colnames(iris)){
+  is.na(iris[[i]]) <- is.special(iris[[i]])
+}
+summary(iris)
+head(iris)
+```
+
+#3.2 Checking with the rules
+
+#3.2a Besides missing values, the data set contains errors. We have the following background knowledge:
+# -Species should be one of the following values: setosa, versicolor or virginica
+# -All measured numerical properties of an iris should be positive.
+# -The petal length of an iris is at least 2 times its petal width.
+# - The sepal length of an iris cannot exceed 30 cm.
+# -The sepals of an iris are longer than its petals
+#Define these rules in a separate text file and read them into R using editfile
+
+```{r}
+library(editrules)
+E <- editfile("constraints_iris.txt")
+print(E)
+```
+#3.2b Determine how often each rule is broken (violatedEdits). Summarize and plot the result.
+
+```{r}
+ve <- violatedEdits(E, iris)
+summary(ve)
+plot(ve)
+```
+
+#3.2c What percentage of the data has no errors
+
+```{r}
+percent_noerrors <- (sum(apply(ve, 1, sum)==0, na.rm = TRUE) / nrow(iris)) * 100
+percent_noerrors_round <- round(percent_noerrors, digits = 1)
+paste("The percentage of data that has no error:",percent_noerrors_round,"%")
+```
+
+#3.2d which observations have too long petals using the result of violatedEdits.
+```{r}
+observation <- which(iris$Petal.Length >= iris$Sepal.Length)
+```
+
+#3.2e Find outliers in sepal length using boxplot and boxplot.stats
+```{r}
+boxplot(iris$Sepal.Length)
+
+outlier <- boxplot.stats(iris$Sepal.Length)$out
+```
+#setting outliers to NA
+```{r}
+new_iris <- iris
+outlier_1 <- new_iris$Sepal.Length %in% outlier
+new_iris$Sepal.Length[outlier_1] <- rep(NA, length(outlier))
+boxplot(new_iris$Sepal.Length)
+```
+#3.3a Replace non positive values from Petal.Width with NA using correctWithRules from the library deducorrect.
+```{r}
+library(deducorrect)
+cr <- correctionRules(expression(
+  if (!is.na(Petal.Width) && Petal.Width <=0 ) Petal.Width = NA
+))
+new_iris <- correctWithRules(cr, new_iris)$corrected
+```
+#3.3b Replace all erronous values with NA using (the result of) localizeErrors
+```{r}
+head(localizeErrors(E, iris)$adapt)
+new_iris[localizeErrors(E, new_iris)$adapt] <- NA
+summary(violatedEdits(E, new_iris))
+any(violatedEdits(E,new_iris), na.rm = TRUE)
+```
+#3.4 Imputing
+
+#3.4a Use kNN imputation (VIM) to impute all missing values
+```{r}
+library(VIM)
+iris_knn <- kNN(new_iris)
+petal_width_knn <- iris_knn$Petal.Width
+summary(petal_width_knn)
+head(iris_knn[,names(new_iris)], 10)
+```
+#3.4b Use sequential hotdeck imputation to impute Petal.Width by sorting the dataset on Species. 
+#Compare the imputed Petal.Width with the sequential hotdeck imputation method. 
+#Note the ordering of the data!
+```{r}
+seqImp <- function(x, last=median(x, na.rm = TRUE)){
+  n <- length(x)
+  x <- c(x, last)
+  j <- is.na(x)
+  while (any(j)) {
+    x[j] <- x[which(j)+1]
+    j <- is.na(x)
+  }
+  x[1:n]
+}
+new_iris_So <- new_iris[order(new_iris$Species),]
+head(new_iris_So)
+new_iris_So$Petal.Width<- seqImp(new_iris_So$Petal.Width)
+```
+
+#3.4c Do the same but now by sorting the dataset on Species and Sepal.Length
+```{r}
+new_iris_Sl <- new_iris[order(new_iris$Species, new_iris$Sepal.Length),]
+head(new_iris_Sl)
+new_iris_Sl$Petal.Width<- seqImp(new_iris_Sl$Petal.Width)
+```
+#Comparing the dataframe
+```{r}
+comp_df <- data.frame(order1 = new_iris_So$Petal.Width, order2 = new_iris_Sl$Petal.Width)
+head(comp_df)
+```
+#We suspect that order1 and order2 has the exact same values.
+#Hence to confirm we perform setdiff and sort function
+```{r}
+setdiff(comp_df$order1, comp_df$order2)
+sort(unique(comp_df$order1))
+sort(unique(comp_df$order2))
+```
